@@ -2,7 +2,7 @@
 A wrapper for you minecraft server that let's you view in-game chat from a website and talk to the chat as a guest.
 To run this, you have to download java to the javbin directory in your server root. For example:
 
-
+This is probably broken on normal view
 | <-- ServerRoot
 |
 |-----webcraft_wrapper.py

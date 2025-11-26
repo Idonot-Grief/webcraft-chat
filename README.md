@@ -2,7 +2,7 @@
 A wrapper for you minecraft server that let's you view in-game chat from a website and talk to the chat as a guest.
 To run this, you have to download java to the javbin directory in your server root. For example:
 
-This is probably broken on normal view
+```
 | <-- ServerRoot
 |
 |-----webcraft_wrapper.py
@@ -16,7 +16,7 @@ This is probably broken on normal view
 |      bin
 |       |
 |   javaw.exe
-
+```
 This program only needs Python 3.14 and Flask. Nothing else to run the script.
 How it works is the python script hijacks the server console, then hosts a flask
 frontend. When the client on the frontend sends a message, it uses /tellraw to emulate

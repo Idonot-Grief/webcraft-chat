@@ -35,4 +35,5 @@ you have to modify passkey.txt and put in your password. Whatever content is in
 that file is the password. Then you click login. You are able to restore rar backups,
 create backups, kill, gracefully stop, or restart (start if already stopped) the server.
 Which you can also enter your own commands to the server console. To change where backups
-are made, you have to specify it in the python source.
+are made, you have to specify it in the python source. You will also need Winrar
+installed on your system to take backups.

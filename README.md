@@ -19,6 +19,8 @@ Server Root
   |      bin
   |       |
   |   javaw.exe
+  |
+  --------------------------------------
 ```
 This program only needs Python 3.14 and Flask. Nothing else to run the script.
 How it works is the python script hijacks the server console, then hosts a flask

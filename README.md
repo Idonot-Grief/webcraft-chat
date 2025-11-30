@@ -3,21 +3,22 @@ A wrapper for you minecraft server that let's you view in-game chat from a websi
 To run this, you have to download java to the javbin directory in your server root. For example:
 
 ```
-| <-- ServerRoot
-|
-|-----webcraft_wrapper.py
-|
-|-----passkey.txt
-|
-|-----server.jar
-|
-|-----fabic-server-launch.jar
-|
-|-----javbin
-|       |
-|      bin
-|       |
-|   javaw.exe
+Server Root
+  |
+  |
+  |-----webcraft_wrapper.py
+  |
+  |-----passkey.txt
+  |
+  |-----server.jar
+  |
+  |-----fabic-server-launch.jar
+  |
+  |-----javbin
+  |       |
+  |      bin
+  |       |
+  |   javaw.exe
 ```
 This program only needs Python 3.14 and Flask. Nothing else to run the script.
 How it works is the python script hijacks the server console, then hosts a flask

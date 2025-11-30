@@ -14,6 +14,12 @@ Server Root
   |
   |-----fabic-server-launch.jar
   |
+  |------ mods
+  |         |
+  |   fabric-api.jar
+  |         |
+  |       Etc,.
+  |      
   |-----javbin
   |       |
   |      bin

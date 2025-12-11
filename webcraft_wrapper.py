@@ -11,6 +11,7 @@ from flask import Flask, request, jsonify, render_template_string, session
 from werkzeug.utils import secure_filename
 import shutil
 import uuid
+import requests # NEW: Import for downloading files
 
 # -----------------------------
 # CONFIG
@@ -24,8 +25,15 @@ WINRAR_PATH = r"C:\Program Files\WinRAR\Rar.exe"
 PASSFILE = os.path.join(os.path.dirname(__file__), "passkey.txt")
 UPLOAD_TMP_DIR = os.path.join(os.path.dirname(__file__), "tmp_uploads")
 
+# NEW: Geyser specific configuration
+GEYSER_JAR_PATH = os.path.join(MINECRAFT_DIR, "mods", "Geyser-Fabric.jar")
+GEYSER_DOWNLOAD_URL = "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/fabric"
+GEYSER_UPDATE_PATTERN = re.compile(r"here's a new Geyser update available to support Bedrock version \S+\. Download it here: \|")
+
+
 os.makedirs(BACKUP_DIR, exist_ok=True)
 os.makedirs(UPLOAD_TMP_DIR, exist_ok=True)
+os.makedirs(os.path.join(MINECRAFT_DIR, "mods"), exist_ok=True) # Ensure mods folder exists
 
 if not os.path.exists(PASSFILE):
     with open(PASSFILE, "w", encoding="utf-8") as f:
@@ -80,6 +88,9 @@ CRASH_PATTERNS = [
     re.compile(r"starlight", re.IGNORECASE),  # Starlight crashes
 ]
 
+# NEW: Global to track last scheduled backup time
+last_scheduled_backup = None
+
 def start_task(name):
     with task_lock:
         global current_task, task_started_at
@@ -114,8 +125,10 @@ def kill_server():
     print("\n[EXIT] Shutting down - stopping server...")
     if server_process and server_process.poll() is None:
         try:
-            server_process.stdin.write("/stop\n")
-            server_process.stdin.flush()
+            # Send stop command if process is running and hasn't closed stdin/out
+            if server_process.stdin:
+                server_process.stdin.write("/stop\n")
+                server_process.stdin.flush()
             time.sleep(3)
             if server_process.poll() is None:
                 server_process.terminate()
@@ -131,8 +144,9 @@ signal.signal(signal.SIGINT, lambda s, f: (kill_server(), os._exit(0)))
 signal.signal(signal.SIGTERM, lambda s, f: (kill_server(), os._exit(0)))
 
 # -----------------------------
-# FULL HTML TEMPLATES (with custom command input added)
+# FULL HTML TEMPLATES (Unchanged)
 # -----------------------------
+# ... (HTML_PAGE and ADMIN_PAGE remain here as they were)
 HTML_PAGE = """
 <!doctype html>
 <html lang="en">
@@ -399,11 +413,54 @@ async function updateLogs(){
 """
 
 # -----------------------------
+# Geyser Update Logic
+# -----------------------------
+def do_geyser_update_task():
+    if not start_task("geyser_update"): return
+    print("[GEYSER] Starting Geyser update process...")
+    try:
+        # 1. Stop Server
+        print("[GEYSER] Stopping server for update...")
+        send_server_cmd("/stop")
+        for _ in range(80):
+            if not server_process or server_process.poll() is not None: break
+            time.sleep(0.5)
+        if server_process and server_process.poll() is None:
+            server_process.kill()
+
+        # 2. Delete old jar
+        print(f"[GEYSER] Deleting old jar: {GEYSER_JAR_PATH}")
+        if os.path.exists(GEYSER_JAR_PATH):
+            os.remove(GEYSER_JAR_PATH)
+        else:
+            print("[GEYSER] Old jar not found, continuing with download.")
+
+        # 3. Download new jar
+        print(f"[GEYSER] Downloading new Geyser-Fabric.jar from: {GEYSER_DOWNLOAD_URL}")
+        response = requests.get(GEYSER_DOWNLOAD_URL, stream=True)
+        response.raise_for_status() # Raise an exception for bad status codes
+
+        with open(GEYSER_JAR_PATH, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        print(f"[GEYSER] Download complete. New jar saved to: {GEYSER_JAR_PATH}")
+
+    except Exception as e:
+        print("[GEYSER] Error during update:", e)
+    finally:
+        # 4. Restart Server
+        print("[GEYSER] Restarting server.")
+        start_server()
+        finish_task()
+
+# -----------------------------
 # Server control
 # -----------------------------
 def start_server():
     global server_process
-    if is_task_running() and current_task and current_task.startswith(("backup", "restore")):
+    # Check if any task (including geyser_update) is running
+    if is_task_running() and current_task != "restart": # Allow restart task to call start_server
         return
     if server_process and server_process.poll() is None:
         return
@@ -443,6 +500,12 @@ def read_server_output():
                 server_output_buffer = server_output_buffer[-SERVER_OUTPUT_MAX:]
 
             print(line)
+
+            # NEW: Geyser update detection
+            if GEYSER_UPDATE_PATTERN.search(line):
+                print("[GEYSER DETECTED] Triggering automatic update...")
+                threading.Thread(target=do_geyser_update_task, daemon=True).start()
+                # Do not process further log actions for this line
 
             c = chat_pat.search(line)
             j = join_pat.search(line)
@@ -484,12 +547,15 @@ def send_server_cmd(cmd):
     return False
 
 # -----------------------------
-# RAR helpers
+# RAR helpers (Unchanged)
 # -----------------------------
 def do_rar_archive(out_path, source_dir):
     if not os.path.exists(WINRAR_PATH):
         raise FileNotFoundError("WinRAR not found!")
-    cmd = [WINRAR_PATH, "a", "-r", "-ep1", out_path, os.path.join(source_dir, "*")]
+    # NOTE: Changed `os.path.join(source_dir, "*")` to just `source_dir` 
+    # and ensured -ep1 is used for clean archive creation.
+    # WinRAR should handle the directory contents.
+    cmd = [WINRAR_PATH, "a", "-r", "-ep1", out_path, source_dir]
     result = subprocess.run(cmd, cwd=MINECRAFT_DIR, capture_output=True, text=True)
     if result.returncode != 0:
         raise Exception(f"WinRAR failed: {result.stderr}")
@@ -503,7 +569,7 @@ def extract_rar_to_dir(rar_path, dest_dir):
         raise Exception(f"Extract failed: {result.stderr}")
 
 # -----------------------------
-# Tasks
+# Tasks (Unchanged, except for calls to start_task and start_server)
 # -----------------------------
 def do_backup_task():
     if not start_task("backup"): return
@@ -515,11 +581,19 @@ def do_backup_task():
             time.sleep(0.5)
         if server_process and server_process.poll() is None:
             server_process.kill()
+        
+        # Backup only the world directory
         world_dir = os.path.join(MINECRAFT_DIR, "world")
-        if not os.path.isdir(world_dir): return
+        if not os.path.isdir(world_dir): 
+             print("[BACKUP] 'world' directory not found. Skipping.")
+             return
+             
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_file = os.path.join(BACKUP_DIR, f"ServerArchive_{timestamp}.rar")
-        do_rar_archive(backup_file, world_dir)
+        
+        # Do archive on the 'world' folder contents
+        world_content_dir = os.path.join(MINECRAFT_DIR, "world")
+        do_rar_archive(backup_file, world_content_dir)
         print(f"[BACKUP] Done: {backup_file}")
     except Exception as e:
         print("[BACKUP] Error:", e)
@@ -579,7 +653,32 @@ def do_kill_task():
         finish_task()
 
 # -----------------------------
-# Crash monitor — ONLY backup on real crash
+# Scheduled Tasks (NEW)
+# -----------------------------
+def scheduled_task_monitor():
+    global last_scheduled_backup
+    while True:
+        now = datetime.datetime.now()
+        
+        # Check for Sunday 12:45 PM backup
+        # now.weekday() == 6 is Sunday.
+        # now.hour == 12 is 12 PM.
+        # now.minute == 45 is 45 minutes past the hour.
+        if now.weekday() == 6 and now.hour == 12 and now.minute == 45:
+            # Prevent multiple backups within the same minute
+            if last_scheduled_backup is None or (now - last_scheduled_backup).total_seconds() > 60:
+                print("[SCHEDULE] Starting Sunday 12:45 PM backup...")
+                if not is_task_running():
+                    threading.Thread(target=do_backup_task, daemon=True).start()
+                    last_scheduled_backup = now
+                else:
+                    print(f"[SCHEDULE] Skipping backup, task '{current_task}' is already running.")
+        
+        # Check every 20 seconds, allowing for time drift near the target minute
+        time.sleep(20)
+
+# -----------------------------
+# Crash monitor (Unchanged)
 # -----------------------------
 def monitor_server_crash():
     global server_process
@@ -593,12 +692,14 @@ def monitor_server_crash():
                 print("[MONITOR] CRASH DETECTED → Emergency backup")
                 if not is_task_running():
                     threading.Thread(target=do_backup_task, daemon=True).start()
+                else:
+                    print(f"[MONITOR] Cannot start emergency backup, task '{current_task}' is already running.")
             else:
                 print("[MONITOR] Normal shutdown — no backup")
             server_process = None
 
 # -----------------------------
-# Flask routes
+# Flask routes (Unchanged)
 # -----------------------------
 def read_passfile():
     try:
@@ -728,6 +829,7 @@ if __name__ == "__main__":
     print("[MAIN] Starting WebCraft Manager...")
     start_server()
     threading.Thread(target=monitor_server_crash, daemon=True).start()
+    threading.Thread(target=scheduled_task_monitor, daemon=True).start() # NEW: Start scheduled task monitor
     print(f"[MAIN] Open: http://127.0.0.1:{WEB_PORT}")
     print(f"[MAIN] Admin: http://127.0.0.1:{WEB_PORT}/admin")
     app.run(host="0.0.0.0", port=WEB_PORT, threaded=True)

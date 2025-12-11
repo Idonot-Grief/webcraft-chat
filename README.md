@@ -18,7 +18,9 @@ Server Root
   |         |
   |   fabric-api.jar
   |         |
-  |       Etc,.
+  |  Geyser-Fabric.jar      
+  |         |
+  |        Etc,.
   |      
   |-----javbin
   |       |
@@ -28,7 +30,7 @@ Server Root
   |
   --------------------------------------
 ```
-This program only needs Python 3.14 and Flask. Nothing else to run the script.
+This program only needs Python 3.14, Requests, and Flask. Nothing else to run the script.
 How it works is the python script hijacks the server console, then hosts a flask
 frontend. When the client on the frontend sends a message, it uses /tellraw to emulate
 an actual chat message. To read messages, it looks for join messages and leave messages,
@@ -45,4 +47,4 @@ that file is the password. Then you click login. You are able to restore rar bac
 create backups, kill, gracefully stop, or restart (start if already stopped) the server.
 Which you can also enter your own commands to the server console. To change where backups
 are made, you have to specify it in the python source. You will also need Winrar
-installed on your system to take backups.
+installed on your system to take backups.  It also automatically updates Geyser if you have it installed, again only on Fabric.
